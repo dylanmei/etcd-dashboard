@@ -1,10 +1,10 @@
 package dashboard
 
 import (
+	"fmt"
 	"net/http"
 	"path"
-	"fmt"
-	
+
 	"github.com/gorilla/mux"
 )
 
@@ -29,6 +29,6 @@ func HTTPHandler() http.Handler {
 
 	r.PathPrefix("/dashboard/static/").Handler(http.StripPrefix("/dashboard/static/", HttpHandler()))
 	r.HandleFunc("/dashboard{path:.*}", indexPage)
-	
+
 	return r
 }
