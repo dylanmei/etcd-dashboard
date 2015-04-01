@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/AdoHe/etcd-dashboard/config"
-	"github.com/AdoHe/etcd-dashboard/dashboard"
+	"github.com/dylanmei/etcd-dashboard/config"
+	"github.com/dylanmei/etcd-dashboard/dashboard"
 	"github.com/gorilla/mux"
 )
 
