@@ -26,8 +26,10 @@ func main() {
 	r.PathPrefix("/v2").Handler(p)
 
 	http.Handle("/", r)
-	var addr string = config.Host + ":" + config.Port
-	err := http.ListenAndServe(addr, nil)
+	log.Println("Starting EtcD Dashboard")
+	log.Println("Using EtcD Backend:", config.EtcdAddr)
+
+	err := http.ListenAndServe(":" + config.ListenPort, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
