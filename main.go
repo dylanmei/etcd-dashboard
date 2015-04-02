@@ -1,10 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"path"
 
@@ -19,22 +18,27 @@ func main() {
 		log.Fatal(err)
 	}
 
-	r := mux.NewRouter()
-	r.PathPrefix("/mod").Handler(http.StripPrefix("/mod", dashboard.HTTPHandler()))
+	fmt.Println("Starting EtcD Dashboard. Using EtcD Backend:", config.EtcdAddr)
 
-	target, _ := url.Parse("http://" + config.EtcdAddr)
-	p := httputil.NewSingleHostReverseProxy(target)
-	r.PathPrefix("/v2").Handler(p)
+	r := mux.NewRouter()
+	// Routes for our EtcD reverse-proxy
+	proxy, err := dashboard.NewProxy("http://" + config.EtcdAddr)
+	if err != nil {
+		log.Fatal("Couldn't create proxy:", err)
+	}
+
+	r.PathPrefix("/v2").Handler(proxy)
+	r.PathPrefix("/version").Handler(proxy)
+
+	// Routes for our Dashboard UI
+	r.PathPrefix("/mod").Handler(http.StripPrefix("/mod", dashboard.HTTPHandler()))
 	r.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		http.Redirect(w, req, path.Join("/mod/dashboard", req.URL.Path)+"/", 302)
 	}))
 
 	http.Handle("/", r)
-	log.Println("Starting EtcD Dashboard")
-	log.Println("Using EtcD Backend:", config.EtcdAddr)
-
-	err := http.ListenAndServe(":"+config.ListenPort, nil)
+	err = http.ListenAndServe(":"+config.ListenPort, nil)
 	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
+		log.Fatal("Couldn't start server:", err)
 	}
 }

@@ -14,7 +14,7 @@ func addSlash(w http.ResponseWriter, req *http.Request) {
 }
 
 func indexPage(w http.ResponseWriter, req *http.Request) {
-	fmt.Printf("%s", "serve index page")
+	fmt.Println("Serving index page")
 	http.ServeFile(w, req, path.Join("./dashboard/dist", "index.html"))
 }
 
