@@ -83,13 +83,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	newProxy := newLeaderProxy(leaderURL)
 	retryCode := p.tryServe(newProxy, w, r)
 
-	if retryCode == 403 {
+	switch retryCode {
+	case 403, 500:
 		fmt.Printf("Couldn't redirect request to leader: %s\n", leaderURL.Host)
-	} else {
+	default:
+		fmt.Printf("Done proxying request: STATUS %d\n", retryCode)
 		p.embedded = newProxy
 	}
-
-	fmt.Printf("Done proxying request: STATUS %d\n", retryCode)
 }
 
 func (p *Proxy) tryServe(proxy *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) int {
