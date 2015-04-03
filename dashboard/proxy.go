@@ -13,35 +13,30 @@ import (
 )
 
 type Proxy struct {
-	To       *url.URL
-	Leader   *url.URL
+	Self     *url.URL
 	embedded *httputil.ReverseProxy
 }
 
-func NewProxy(to string) (*Proxy, error) {
-	toURL, err := url.Parse(to)
+func NewProxy(self string) (*Proxy, error) {
+	selfURL, err := url.Parse(self)
 	if err != nil {
-		return nil, fmt.Errorf("Couldn't parse target URL:", to)
+		return nil, fmt.Errorf("Couldn't parse self URL:", self)
 	}
 
-	leaderURL, err := ensureLeaderURL(to)
+	leaderURL, err := ensureLeaderURL(self)
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't determine leader: %v", err)
 	}
 
 	fmt.Printf("Starting reverse proxy. Using EtcD leader: %s\n", leaderURL.Host)
-	proxy := &Proxy{
-		embedded: httputil.NewSingleHostReverseProxy(leaderURL),
-		To:       toURL,
-		Leader:   leaderURL,
-	}
-
-	proxy.embedded.Director = proxy.director
-	return proxy, nil
+	return &Proxy{
+		embedded: newLeaderProxy(leaderURL),
+		Self:     selfURL,
+	}, nil
 }
 
-func ensureLeaderURL(to string) (*url.URL, error) {
-	resp, err := http.Get(to + "/v2/leader")
+func ensureLeaderURL(self string) (*url.URL, error) {
+	resp, err := http.Get(self + "/v2/leader")
 	if err != nil {
 		return nil, err
 	}
@@ -69,33 +64,66 @@ func ensureLeaderURL(to string) (*url.URL, error) {
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Start proxying request: %s %s\n", r.Method, r.RequestURI)
 
+	statusCode := p.tryServe(p.embedded, w, r)
+	switch statusCode {
+	case 403, 500:
+		fmt.Printf("Encountered trouble with leader: STATUS %d\n", statusCode)
+	default:
+		fmt.Printf("Done proxying request: STATUS %d\n", statusCode)
+		return
+	}
+
+	leaderURL, err := ensureLeaderURL("http://"+p.Self.Host)
+	if err != nil {
+		fmt.Printf("Couldn't determine leader: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Found new leader: %s\n", leaderURL.Host)
+	newProxy := newLeaderProxy(leaderURL)
+	retryCode := p.tryServe(newProxy, w, r)
+
+	if retryCode == 403 {
+		fmt.Printf("Couldn't redirect request to leader: %s\n", leaderURL.Host)
+	} else {
+		p.embedded = newProxy
+	}
+
+	fmt.Printf("Done proxying request: STATUS %d\n", retryCode)
+}
+
+func (p *Proxy) tryServe(proxy *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) int {
 	rec := httptest.NewRecorder()
-	p.embedded.ServeHTTP(rec, r)
+	proxy.ServeHTTP(rec, r)
 
 	copyHeader(w.Header(), rec.Header())
 	w.WriteHeader(rec.Code)
 	_, err := io.Copy(w, rec.Body)
 	if err != nil {
-		fmt.Errorf("Error: %v", err)
+		fmt.Printf("Error: %v", err)
 	}
 
-	fmt.Printf("Done proxying request: status %d\n", rec.Code)
+	return rec.Code
 }
 
-func (p *Proxy) director(req *http.Request) {
-	target := p.Leader
-	targetQuery := target.RawQuery
+func newLeaderProxy(leaderURL *url.URL) *httputil.ReverseProxy {
+	p := httputil.NewSingleHostReverseProxy(leaderURL)
+	p.Director = func(req *http.Request) {
+		targetQuery := leaderURL.RawQuery
 
-	req.URL.Scheme = target.Scheme
-	req.URL.Host = target.Host
-	req.Host = target.Host
-	req.URL.Path = singleJoiningSlash(target.Path, req.URL.Path)
+		req.URL.Scheme = leaderURL.Scheme
+		req.URL.Host = leaderURL.Host
+		req.Host = leaderURL.Host
+		req.URL.Path = singleJoiningSlash(leaderURL.Path, req.URL.Path)
 
-	if targetQuery == "" || req.URL.RawQuery == "" {
-		req.URL.RawQuery = targetQuery + req.URL.RawQuery
-	} else {
-		req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
+		if targetQuery == "" || req.URL.RawQuery == "" {
+			req.URL.RawQuery = targetQuery + req.URL.RawQuery
+		} else {
+			req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
+		}
 	}
+
+	return p
 }
 
 func singleJoiningSlash(a, b string) string {
